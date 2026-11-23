@@ -127,6 +127,17 @@ def why_no_trend(ctx, cfg) -> str:
     return "sin tendencia diaria clara (EMA10/20)"
 
 
+def range_trend(h, bars: int):
+    """Rango medio 1h de la 2.ª mitad de la ventana / el de la 1.ª. >1 = la volatilidad se EXPANDE; <1 = se contrae."""
+    w = h.tail(bars)
+    half = len(w) // 2
+    if half < 2:
+        return None
+    tr = w["high"] - w["low"]
+    first = float(tr.iloc[:half].mean())
+    return float(tr.iloc[half:].mean()) / first if first > 0 else None
+
+
 def box(side: str, ctx, h, cfg, stats=None):
     """Consolidación tensa en 1h: rango contraído + higher lows (long) / lower highs (short)."""
     long = side == "long"

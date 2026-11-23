@@ -12,7 +12,7 @@ import ccxt
 from ict import ict_signals
 from indicators import rvol, to_df
 from strategies import (adjust_candidate, adjust_score, btc_regime, daily_ctx, early_break, evaluate,
-                        trend_gate, watch_candidates, why_no_signal, why_no_trend)
+                        range_trend, trend_gate, watch_candidates, why_no_signal, why_no_trend)
 
 BTC = "BTC/USDT:USDT"
 DAILY_TTL = 1200     # s: la vela diaria cambia despacio, no hace falta pedirla en cada escaneo
@@ -34,6 +34,16 @@ def _transient(e: Exception) -> bool:
     return "100410" in msg or "请稍后重试" in msg or isinstance(e, ccxt.NetworkError)
 
 
+def spike_text(df, qv: float) -> str:
+    """Datos crudos de la última vela para validar un RVOL extremo (también cuando se conserva)."""
+    last = float(df["volume"].iloc[-1])
+    prev = df["volume"].iloc[-21:-1]
+    usd = last * float(df["close"].iloc[-1])
+    share = f"{usd / qv * 100:.0f}% del 24h" if qv > 0 else "24h ?"
+    return (f"{rvol(df, 20):.0f}x → última {last:.4g} | mediana20 {float(prev.median()):.4g} | "
+            f"ceros {int((prev <= 0).sum())}/20 | ≈${usd:,.0f} en 15m ({share}, 24h ${qv:,.0f})")
+
+
 def rvol_checked(df, qv: float, cfg):
     """
     (rvol, diagnóstico). Si el RVOL supera `rvol_cap` se comprueba: con >=3 de las 20 velas previas a cero, o si esa
@@ -47,8 +57,7 @@ def rvol_checked(df, qv: float, cfg):
     prev = df["volume"].iloc[-21:-1]
     zeros, usd = int((prev <= 0).sum()), last * float(df["close"].iloc[-1])
     if zeros >= 3 or (qv > 0 and usd > cfg.rvol_day_frac * qv):
-        return 0.0, (f"{rv:.0f}x → última {last:.4g} | mediana20 {float(prev.median()):.4g} | "
-                     f"ceros {zeros}/20 | ≈${usd:,.0f} en 15m vs ${qv:,.0f} en 24h")
+        return 0.0, spike_text(df, qv)
     return rv, None
 
 
@@ -57,6 +66,8 @@ class ScanResult:
     signals: list = field(default_factory=list)
     candidates: list = field(default_factory=list)
     movers: list = field(default_factory=list)       # (símbolo, rvol15m, %24h, motivo/estado)
+    spikes: list = field(default_factory=list)      # (símbolo, texto): RVOL extremo CONSERVADO, con sus datos crudos
+    range_ratios: list = field(default_factory=list)  # rango 1h 2.ª mitad / 1.ª mitad, por moneda
     suspect: list = field(default_factory=list)     # (símbolo, diagnóstico): RVOL ignorado por dato dudoso
     ict_watch: list = field(default_factory=list)   # barridos ICT hechos que esperan el CISD
     far: list = field(default_factory=list)         # cajas válidas aún lejos: (símbolo, lado, dist%, gatillo)
@@ -176,6 +187,8 @@ class Scanner:
                 if diag:
                     res.suspect.append((sym, diag))
                     st["RVOL ignorado por dato dudoso"] += 1
+                elif rv > cfg.rvol_cap:
+                    res.spikes.append((sym, spike_text(m, qv)))
                 hot = rv >= cfg.prefilter_rvol or abs(pct) >= cfg.prefilter_move24
 
                 # Sistema ICT: el VOLUMEN es la puerta de entrada (solo se piden 4h/1h si la 15m trae volumen).
@@ -211,6 +224,9 @@ class Scanner:
                     continue
 
                 h = self._get(sym, "1h", 120, HOURLY_TTL, fresh=hot, drop_last=True)
+                rt = range_trend(h, cfg.consol_bars)
+                if rt is not None:
+                    res.range_ratios.append(rt)
                 if hot:                               # algo se mueve AHORA: busca ruptura confirmada
                     st["con volumen ahora"] += 1
                     sigs = evaluate(sym, d, h, m, cfg, st)

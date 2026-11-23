@@ -189,12 +189,23 @@ def fmt_digest(res, cfg) -> str:
     if res.movers:
         out.append("\n<b>Con volumen ahora</b> (RVOL 15m · %24h → por qué no es señal):")
         out += [f"• {s} {rv:.1f}x · {p:+.1f}% → {why}"
-                + (f" 🔥 pico extremo (/debug {s.split('/')[0]} para ver las velas)" if rv > RVOL_SUSPECT else "")
+                + (" 🔥" if rv > RVOL_SUSPECT else "")
                 for s, rv, p, why in res.movers[:5]]
     if st["ICT: con volumen"]:
         out.append(f"\n<b>ICT 4h→1h→15m</b>: con volumen {st['ICT: con volumen']} → sesgo 4h {st['ICT: sesgo 4h']} → "
                    f"POI {st['ICT: POI']} → barrido {st['ICT: barrido en POI']} → CISD {st['ICT: CISD 15m']} → "
                    f"señales {st['ICT: señales']}")
+    if res.range_ratios and len(res.range_ratios) >= 10:
+        rr = sorted(res.range_ratios)
+        med = rr[len(rr) // 2]
+        pct = sum(1 for x in rr if x >= cfg.consol_contract) / len(rr) * 100
+        half = cfg.consol_bars // 2
+        out.append(f"\n📈 <b>Volatilidad 1h</b> (últimas {half}h vs {half}h previas): mediana ×{med:.2f} · "
+                   f"{pct:.0f}% de las monedas se expanden"
+                   + (" → mercado en expansión: casi ninguna consolidación es lo normal ahora" if pct >= 70 else ""))
+    if res.spikes:
+        out.append("\n🔥 <b>Picos extremos de volumen conservados</b> (datos para validar):")
+        out += [f"• {html.escape(s)}: {html.escape(t)}" for s, t in res.spikes[:3]]
     if res.suspect:
         out.append("\n⚠️ <b>RVOL ignorado por dato dudoso</b> (BingX devolvió un volumen imposible):")
         out += [f"• {html.escape(s)}: {html.escape(d)}" for s, d in res.suspect[:3]]

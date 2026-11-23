@@ -812,7 +812,7 @@ def test_digest_flags_absurd_rvol_and_lists_ict_watch():
     res = Scanner(FakeScanEx({"ATOM/USDT:USDT": (d, h, m)}), CFG).scan()
     res.ict_watch = [{"symbol": "X/USDT:USDT", "side": "long", "level": 1.5, "rv": 0.7}]
     t = botmain.fmt_digest(res, CFG)
-    assert "pico extremo (/debug ATOM" in t and "ICT esperando CISD" in t
+    assert "ATOM/USDT:USDT 150.0x" in t and "🔥" in t and "Picos extremos" in t and "ICT esperando CISD" in t
 
 
 # ───────────── RVOL robusto, datos dudosos, escapado HTML, contracción configurable ─────────────
@@ -902,3 +902,48 @@ def test_ict_watch_message_text_is_clean():
     ict_signals("T/USDT:USDT", ict_h4_bull(), ict_h1(), _m_sweep_without_cisd(), CFG, None, watch)
     t = botmain.fmt_ict_watch(watch, CFG)
     assert "Falta el CISD 15m." in t and "velas en contra" in t
+
+
+# ───────────── diagnóstico: volatilidad del mercado, picos conservados, motivos ICT ─────────────
+from strategies import range_trend
+from scanner import spike_text
+
+
+def test_range_trend_measures_expansion_vs_contraction():
+    contracting = hourly()                                    # la caja de 12 velas se estrecha
+    assert range_trend(contracting, 12) < 1.0
+    h = hourly(consol=False, rng=0.01)
+    for k in range(12):                                       # 2.ª mitad con el doble de rango
+        base = 1.6
+        h.loc[h.index[-12 + k], ["high", "low"]] = [base * (1.005 if k < 6 else 1.01), base * (0.995 if k < 6 else 0.99)]
+    assert range_trend(h, 12) == pytest.approx(2.0, rel=0.05)
+    assert range_trend(h.tail(3), 12) is None                 # ventana demasiado corta
+
+
+def test_digest_reports_market_wide_volatility_and_kept_spikes():
+    d = daily_trend()
+    expanding = hourly(consol=False, rng=0.01)
+    for k in range(12):
+        expanding.loc[expanding.index[-12 + k], ["high", "low"]] = [1.6 * (1.005 if k < 6 else 1.01), 1.6 * (0.995 if k < 6 else 0.99)]
+    h = _with_open_hour(expanding)
+    data = {f"C{i}/USDT:USDT": (d, h, _with_open_candle(m15(last_open=1.6, last_close=1.6, last_vol=100 * 60))) for i in range(12)}
+    res = Scanner(FakeScanEx(data), CFG).scan()
+    assert len(res.range_ratios) == 12 and len(res.spikes) == 12      # 60x > cap 40, pero plausible: se conserva con datos
+    t = botmain.fmt_digest(res, CFG)
+    assert "Volatilidad 1h" in t and "100% de las monedas se expanden" in t and "mercado en expansión" in t
+    assert "Picos extremos de volumen conservados" in t and "ceros 0/20" in t and "del 24h" in t
+    assert len([l for l in t.splitlines() if l.startswith("• C") and "ceros" in l]) == 3     # solo 3 líneas
+
+
+def test_spike_text_has_raw_numbers():
+    s = spike_text(_vol_df([2774.0] * 20, 6.525e6, close=2.514), 24_937_359)
+    assert "mediana20 2774" in s and "ceros 0/20" in s and "66% del 24h" in s
+
+
+def test_ict_explains_why_a_sweep_is_not_on_the_watchlist():
+    m = ict_m15()
+    m.loc[m.index[-3], ["open", "high", "low", "close"]] = [110.1, 110.2, 109.95, 110.15]   # solo 1 vela en contra
+    m.loc[m.index[-1], ["open", "high", "low", "close"]] = [109.85, 110.0, 109.84, 109.9]
+    stats = Counter()
+    assert ict_signals("T", ict_h4_bull(), ict_h1(), m, CFG, stats, []) == []
+    assert stats["ICT: barrido sin CISD pendiente (tramo corto, ya superado o caducado)"] == 1

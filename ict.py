@@ -241,6 +241,8 @@ def ict_signals(sym, h4, h1, m, cfg, stats=None, watch=None) -> list:
         pend = pending_cisd(m, side, sw["ts"], cfg.ict_cisd_min_run)
         if watch is not None and pend:
             watch.append(_watch_item(sym, side, sw, pend, m, cfg, "falta el CISD 15m"))
+        if not pend:
+            _bump(stats, "ICT: barrido sin CISD pendiente (tramo corto, ya superado o caducado)")
         return []
     _bump(stats, "ICT: CISD 15m")
 
