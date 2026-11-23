@@ -78,6 +78,9 @@ class Config:
     runup_min: float = 20.0         # subida/caída previa 30d (%)
     consol_bars: int = 12           # velas de 1h de consolidación
     consol_range_adr: float = 0.8   # rango de consolidación <= 0.8 * ADR
+    consol_contract: float = 1.0    # contracción: rango medio 2.ª mitad < 1.ª mitad * X (sube a 1.1-1.2 para relajar)
+    rvol_cap: float = 40.0          # RVOL por encima de esto se comprueba (suele ser un dato raro de BingX)
+    rvol_day_frac: float = 0.2      # ...y se descarta si esa vela supera X del volumen 24h o hay >=3 velas a cero
     rvol_min: float = 2.0           # volumen relativo mínimo en vela de ruptura (15m)
     max_chase_pct: float = 1.5      # no perseguir: máx % por encima del nivel roto
     ep_move_15m: float = 3.0        # Episodic Pivot: movimiento mínimo en 15m (%)
@@ -169,6 +172,9 @@ def load_config() -> Config:
         consol_bars=_i("CONSOL_BARS", d.consol_bars),
         consol_range_adr=_f("CONSOL_RANGE_ADR", d.consol_range_adr),
         rvol_min=_f("RVOL_MIN", d.rvol_min),
+        consol_contract=_f("CONSOL_CONTRACT", d.consol_contract),
+        rvol_cap=_f("RVOL_CAP", d.rvol_cap),
+        rvol_day_frac=_f("RVOL_DAY_FRAC", d.rvol_day_frac),
         max_chase_pct=_f("MAX_CHASE_PCT", d.max_chase_pct),
         ep_move_15m=_f("EP_MOVE_15M_PCT", d.ep_move_15m),
         ep_rvol=_f("EP_RVOL", d.ep_rvol),

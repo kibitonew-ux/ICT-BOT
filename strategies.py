@@ -139,7 +139,7 @@ def box(side: str, ctx, h, cfg, stats=None):
         return None
     half = len(w) // 2
     tr = w["high"] - w["low"]
-    if not tr.iloc[half:].mean() < tr.iloc[:half].mean():          # contracción de rango
+    if not tr.iloc[half:].mean() < tr.iloc[:half].mean() * cfg.consol_contract:    # contracción de rango
         _bump(stats, "caja sin contracción de rango")
         return None
     if long and not w["low"].iloc[half:].min() >= w["low"].iloc[:half].min():      # higher lows

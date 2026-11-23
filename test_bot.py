@@ -813,3 +813,67 @@ def test_digest_flags_absurd_rvol_and_lists_ict_watch():
     res.ict_watch = [{"symbol": "X/USDT:USDT", "side": "long", "level": 1.5, "rv": 0.7}]
     t = botmain.fmt_digest(res, CFG)
     assert "RVOL absurdo: verifica con /debug ATOM" in t and "ICT esperando CISD" in t
+
+
+# ───────────── RVOL robusto, datos dudosos, escapado HTML, contracción configurable ─────────────
+from indicators import rvol as rvol_fn, vol_baseline
+from scanner import rvol_checked
+from strategies import box
+
+
+def _vol_df(prev, last, close=1.6):
+    v = list(prev) + [last]
+    n = len(v)
+    return mk(T0 + np.arange(n) * M15, np.full(n, close), np.full(n, close), np.full(n, close), np.full(n, close), np.array(v, float))
+
+
+def test_one_huge_candle_no_longer_hides_real_volume_for_20_candles():
+    prev = [100.0] * 19 + [15_000.0]                       # una vela gigante en la referencia (caso ATOM: 155x -> 0.1x)
+    assert vol_baseline(prev) == pytest.approx((19 * 100 + 300) / 20)
+    old = 100.0 / (sum(prev) / 20)                         # media simple
+    assert old < 0.2 and 0.8 < rvol_fn(_vol_df(prev, 100.0)) < 1.1
+    assert rvol_fn(_vol_df([100.0] * 20, 400.0)) == pytest.approx(4.0)        # sin cambios con volumen normal
+    assert vol_baseline([0, 0, 0, 5, 7]) == pytest.approx(6.0) and vol_baseline([]) == 0.0
+
+
+def test_rvol_checked_discards_impossible_volume_but_keeps_plausible_spikes():
+    cfg = CFG
+    rv, diag = rvol_checked(_vol_df([1.0] * 17 + [0.0] * 3, 1000.0), 5e6, cfg)     # >=3 velas previas a cero
+    assert rv == 0.0 and "ceros 3/20" in diag
+    rv, diag = rvol_checked(_vol_df([100.0] * 20, 5000.0), 1000.0, cfg)             # una vela > 20% del volumen 24h
+    assert rv == 0.0 and diag
+    rv, diag = rvol_checked(_vol_df([100.0] * 20, 5000.0), 5e6, cfg)                # 50x pero plausible: se conserva
+    assert rv == pytest.approx(50.0) and diag is None
+    assert rvol_checked(_vol_df([100.0] * 20, 400.0), 1000.0, cfg) == (pytest.approx(4.0), None)   # bajo el cap: no se toca
+
+
+def test_scan_ignores_absurd_rvol_and_shows_diagnostic():
+    d, h = daily_trend(), _with_open_hour(hourly())
+    m = _with_open_candle(m15(last_open=1.6, last_close=1.6, last_vol=700_000))      # ≈$1.1M en 15m vs $5M en 24h
+    res = Scanner(FakeScanEx({"AUCTION/USDT:USDT": (d, h, m)}), CFG).scan()
+    assert res.suspect and res.suspect[0][0] == "AUCTION/USDT:USDT"
+    assert not res.movers                                                           # ya no cuenta como "con volumen"
+    t = botmain.fmt_digest(res, CFG)
+    assert "RVOL ignorado por dato dudoso" in t and "AUCTION/USDT:USDT" in t
+
+
+def test_digest_escapes_angle_brackets_for_telegram_html():
+    d, h = daily_trend(), _with_open_hour(hourly())
+    res = Scanner(FakeScanEx({"X/USDT:USDT": (d, h, _with_open_candle(m15(last_open=1.6, last_close=1.6)))}), CFG).scan()
+    res.ict_watch = [{"symbol": "BLESS/USDT:USDT", "side": "short", "level": 0.5, "rv": 0.3},
+                     {"symbol": "ATOM/USDT:USDT", "side": "long", "level": 1.195, "rv": 0.1}]
+    t = botmain.fmt_digest(res, CFG)
+    assert "cerrar 15m &lt; 0.5" in t and "cerrar 15m &gt; 1.195" in t
+    import re
+    assert not re.search(r"<(?!/?(b|i|code)>)", t)                                   # ninguna '<' suelta fuera de etiquetas
+
+
+def test_contraction_ratio_is_configurable():
+    h = hourly(consol=False, rng=0.01)
+    base = 1.6
+    for k in range(12):                                     # 2.ª mitad con rango 10% mayor, mismos mínimos
+        h.loc[h.index[-12 + k], ["high", "low"]] = [base * (1.005 if k < 6 else 1.006), base * 0.995]
+    ctx = daily_ctx(daily_trend())
+    st = Counter()
+    assert box("long", ctx, h, CFG, st) is None and st["caja sin contracción de rango"] == 1
+    assert box("long", ctx, h, Config(mode="paper", consol_contract=1.2)) is not None

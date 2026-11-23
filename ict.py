@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from indicators import atr, rvol
+from indicators import atr, rvol, vol_baseline
 from strategies import Signal, _bump, _stop
 
 H1 = 3_600_000
@@ -155,10 +155,10 @@ def find_cisd(m, side: str, ts_sweep: int, cfg):
             continue
         if cidx != last and not ((c[last] > level) if long else (c[last] < level)):
             continue                                                     # el CISD ya se deshizo
-        base, run_v = v[cidx - 20:cidx].mean(), v[rs:cidx].mean()
+        base, run_v = vol_baseline(v[cidx - 20:cidx]), v[rs:cidx].mean()
         rng = hi[cidx] - lo[cidx]
-        sweep_rv = max((v[i] / v[i - 20:i].mean() for i in range(max(20, ik), cidx) if v[i - 20:i].mean() > 0),
-                       default=0.0)
+        sweep_rv = max((v[i] / vol_baseline(v[i - 20:i]) for i in range(max(20, ik), cidx)
+                        if vol_baseline(v[i - 20:i]) > 0), default=0.0)
         entry = float(c[last])
         return {
             "level": float(level), "cidx": cidx, "n_run": cidx - rs, "entry": entry,

@@ -34,11 +34,29 @@ def _transient(e: Exception) -> bool:
     return "100410" in msg or "请稍后重试" in msg or isinstance(e, ccxt.NetworkError)
 
 
+def rvol_checked(df, qv: float, cfg):
+    """
+    (rvol, diagnóstico). Si el RVOL supera `rvol_cap` se comprueba: con >=3 de las 20 velas previas a cero, o si esa
+    sola vela mueve más de `rvol_day_frac` del volumen de 24h, se considera dato erróneo y devuelve (0.0, texto).
+    """
+    rv = rvol(df, 20)
+    if rv <= cfg.rvol_cap:
+        return rv, None
+    last = float(df["volume"].iloc[-1])
+    prev = df["volume"].iloc[-21:-1]
+    zeros, usd = int((prev <= 0).sum()), last * float(df["close"].iloc[-1])
+    if zeros >= 3 or (qv > 0 and usd > cfg.rvol_day_frac * qv):
+        return 0.0, (f"{rv:.0f}x → última {last:.4g} | mediana20 {float(prev.median()):.4g} | "
+                     f"ceros {zeros}/20 | ≈${usd:,.0f} en 15m vs ${qv:,.0f} en 24h")
+    return rv, None
+
+
 @dataclass
 class ScanResult:
     signals: list = field(default_factory=list)
     candidates: list = field(default_factory=list)
     movers: list = field(default_factory=list)       # (símbolo, rvol15m, %24h, motivo/estado)
+    suspect: list = field(default_factory=list)     # (símbolo, diagnóstico): RVOL ignorado por dato dudoso
     ict_watch: list = field(default_factory=list)   # barridos ICT hechos que esperan el CISD
     far: list = field(default_factory=list)         # cajas válidas aún lejos: (símbolo, lado, dist%, gatillo)
     regime: str = "neutral"
@@ -145,7 +163,7 @@ class Scanner:
 
         sides = [s for s, on in (("long", cfg.enable_longs), ("short", cfg.enable_shorts)) if on]
         st = res.stats
-        for sym, _qv, pct in universe:
+        for sym, qv, pct in universe:
             try:
                 m = self._df(sym, "15m", 130)
                 if len(m) < 110:
@@ -153,12 +171,15 @@ class Scanner:
                     continue
                 m = m.iloc[:-1]                      # descarta la vela en curso
                 st["analizados"] += 1
-                rv = rvol(m, 20)
+                rv, diag = rvol_checked(m, qv, cfg)
+                if diag:
+                    res.suspect.append((sym, diag))
+                    st["RVOL ignorado por dato dudoso"] += 1
                 hot = rv >= cfg.prefilter_rvol or abs(pct) >= cfg.prefilter_move24
 
                 # Sistema ICT: el VOLUMEN es la puerta de entrada (solo se piden 4h/1h si la 15m trae volumen).
                 # Va en su propio try: un fallo aquí no debe tapar la detección de rupturas de esta moneda.
-                if cfg.ict_enable and max(rv, rvol(m.iloc[:-1], 20)) >= cfg.ict_rvol:
+                if cfg.ict_enable and max(rv, rvol_checked(m.iloc[:-1], qv, cfg)[0]) >= cfg.ict_rvol:
                     st["ICT: con volumen"] += 1
                     try:
                         h4 = self._get(sym, "4h", 120, H4_TTL, drop_last=True)

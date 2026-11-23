@@ -195,10 +195,13 @@ def fmt_digest(res, cfg) -> str:
         out.append(f"\n<b>ICT 4h→1h→15m</b>: con volumen {st['ICT: con volumen']} → sesgo 4h {st['ICT: sesgo 4h']} → "
                    f"POI {st['ICT: POI']} → barrido {st['ICT: barrido en POI']} → CISD {st['ICT: CISD 15m']} → "
                    f"señales {st['ICT: señales']}")
+    if res.suspect:
+        out.append("\n⚠️ <b>RVOL ignorado por dato dudoso</b> (BingX devolvió un volumen imposible):")
+        out += [f"• {html.escape(s)}: {html.escape(d)}" for s, d in res.suspect[:3]]
     if res.ict_watch:
         out.append("\n<b>🧠 ICT esperando CISD</b> (/ict para el detalle):")
-        out += [f"• {w['symbol']} {w['side'].upper()} cerrar 15m {'>' if w['side'] == 'long' else '<'} {px(w['level'])} "
-                f"(RVOL ahora {w['rv']:.1f}x)" for w in res.ict_watch[:4]]
+        out += [f"• {w['symbol']} {w['side'].upper()} cerrar 15m {'&gt;' if w['side'] == 'long' else '&lt;'} "
+                f"{px(w['level'])} (RVOL ahora {w['rv']:.1f}x)" for w in res.ict_watch[:4]]
     rs = res.reasons(5)
     if rs:
         out.append("\n<b>Por qué se descartan las demás:</b>")
