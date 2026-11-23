@@ -812,7 +812,7 @@ def test_digest_flags_absurd_rvol_and_lists_ict_watch():
     res = Scanner(FakeScanEx({"ATOM/USDT:USDT": (d, h, m)}), CFG).scan()
     res.ict_watch = [{"symbol": "X/USDT:USDT", "side": "long", "level": 1.5, "rv": 0.7}]
     t = botmain.fmt_digest(res, CFG)
-    assert "RVOL absurdo: verifica con /debug ATOM" in t and "ICT esperando CISD" in t
+    assert "pico extremo (/debug ATOM" in t and "ICT esperando CISD" in t
 
 
 # ───────────── RVOL robusto, datos dudosos, escapado HTML, contracción configurable ─────────────
@@ -840,7 +840,7 @@ def test_rvol_checked_discards_impossible_volume_but_keeps_plausible_spikes():
     cfg = CFG
     rv, diag = rvol_checked(_vol_df([1.0] * 17 + [0.0] * 3, 1000.0), 5e6, cfg)     # >=3 velas previas a cero
     assert rv == 0.0 and "ceros 3/20" in diag
-    rv, diag = rvol_checked(_vol_df([100.0] * 20, 5000.0), 1000.0, cfg)             # una vela > 20% del volumen 24h
+    rv, diag = rvol_checked(_vol_df([100.0] * 20, 5000.0), 1000.0, cfg)             # la vela vale MÁS que todo el día: imposible
     assert rv == 0.0 and diag
     rv, diag = rvol_checked(_vol_df([100.0] * 20, 5000.0), 5e6, cfg)                # 50x pero plausible: se conserva
     assert rv == pytest.approx(50.0) and diag is None
@@ -849,7 +849,7 @@ def test_rvol_checked_discards_impossible_volume_but_keeps_plausible_spikes():
 
 def test_scan_ignores_absurd_rvol_and_shows_diagnostic():
     d, h = daily_trend(), _with_open_hour(hourly())
-    m = _with_open_candle(m15(last_open=1.6, last_close=1.6, last_vol=700_000))      # ≈$1.1M en 15m vs $5M en 24h
+    m = _with_open_candle(m15(last_open=1.6, last_close=1.6, last_vol=4_000_000))    # ≈$6.4M en 15m > $5M de TODO el día
     res = Scanner(FakeScanEx({"AUCTION/USDT:USDT": (d, h, m)}), CFG).scan()
     assert res.suspect and res.suspect[0][0] == "AUCTION/USDT:USDT"
     assert not res.movers                                                           # ya no cuenta como "con volumen"
@@ -877,3 +877,28 @@ def test_contraction_ratio_is_configurable():
     st = Counter()
     assert box("long", ctx, h, CFG, st) is None and st["caja sin contracción de rango"] == 1
     assert box("long", ctx, h, Config(mode="paper", consol_contract=1.2)) is not None
+
+
+# ───────────── pico real (caso AUCTION) y coherencia de la vigilancia ICT ─────────────
+def test_real_extreme_spike_is_kept_when_consistent_with_24h_volume():
+    # Datos de tu captura: última 6.525e6 uds (~$16.4M en 15m), mediana20 2774, 24h = $24.9M, 0 ceros
+    rv, diag = rvol_checked(_vol_df([2774.0] * 20, 6.525e6, close=2.514), 24_937_359, CFG)
+    assert diag is None and rv > 2000                      # el 24h YA incluye la vela: es coherente, no es un error
+
+
+def test_ict_watch_only_promises_entries_the_bot_would_accept():
+    m = ict_m15()
+    m.loc[m.index[-3], ["open", "high", "low", "close"]] = [110.1, 110.2, 109.95, 110.15]   # 'a' pasa a ser ALCISTA
+    m.loc[m.index[-1], ["open", "high", "low", "close"]] = [109.85, 110.0, 109.84, 109.9]   # sin CISD
+    assert pending_cisd(m, "long", T0 + 88 * H) is None                                  # solo 1 vela en contra: no se vigila
+    p = pending_cisd(m, "long", T0 + 88 * H, min_run=1)
+    assert p and p["n_run"] == 1
+    watch = []
+    assert ict_signals("T", ict_h4_bull(), ict_h1(), m, CFG, None, watch) == [] and watch == []
+
+
+def test_ict_watch_message_text_is_clean():
+    watch = []
+    ict_signals("T/USDT:USDT", ict_h4_bull(), ict_h1(), _m_sweep_without_cisd(), CFG, None, watch)
+    t = botmain.fmt_ict_watch(watch, CFG)
+    assert "Falta el CISD 15m." in t and "velas en contra" in t

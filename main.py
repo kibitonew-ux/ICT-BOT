@@ -94,8 +94,8 @@ def fmt_ict_watch(items, cfg) -> str:
         out.append(
             f"\n{'🟢' if long else '🔴'} <b>{w['symbol']}</b> {w['side'].upper()} · barrido en {w['kind']} "
             f"{px(w['zlo'])}–{px(w['zhi'])} (mecha a {px(w['ext'])})\n"
-            f"   {w['why'].capitalize()}. ENTRAR solo si una vela 15m CIERRA {'&gt;' if long else '&lt;'} {px(w['level'])} "
-            f"(tramo de {w['n_run']} velas) con RVOL ≥ {cfg.ict_rvol:g}x (ahora {w['rv']:.1f}x) y cierre fuerte\n"
+            f"   {w['why'][0].upper() + w['why'][1:]}. ENTRAR solo si una vela 15m CIERRA {'&gt;' if long else '&lt;'} {px(w['level'])} "
+            f"(tramo de {w['n_run']} velas en contra) con RVOL ≥ {cfg.ict_rvol:g}x (ahora {w['rv']:.1f}x) y cierre fuerte\n"
             f"   Se anula si una vela 15m cierra {'bajo' if long else 'sobre'} {px(w['ext'])}")
     return "\n".join(out)
 
@@ -104,7 +104,7 @@ def fmt_watch(cands, cfg, title="👀 <b>Candidatas a explotar</b> (aún sin rup
     return title + "\n\n" + "\n\n".join(fmt_cand(c, cfg, equity) for c in cands)
 
 
-RVOL_SUSPECT = 40.0      # un RVOL 15m por encima de esto casi siempre es un dato raro de BingX, no mercado
+RVOL_SUSPECT = 40.0      # por encima de esto se etiqueta como pico extremo (puede ser real: ver rvol_checked)
 
 NEAR_TITLE = "🔔 <b>Casi en el gatillo</b> (abre el gráfico 15m y espera el cierre de vela)"
 
@@ -189,7 +189,7 @@ def fmt_digest(res, cfg) -> str:
     if res.movers:
         out.append("\n<b>Con volumen ahora</b> (RVOL 15m · %24h → por qué no es señal):")
         out += [f"• {s} {rv:.1f}x · {p:+.1f}% → {why}"
-                + (f" ⚠️ RVOL absurdo: verifica con /debug {s.split('/')[0]}" if rv > RVOL_SUSPECT else "")
+                + (f" 🔥 pico extremo (/debug {s.split('/')[0]} para ver las velas)" if rv > RVOL_SUSPECT else "")
                 for s, rv, p, why in res.movers[:5]]
     if st["ICT: con volumen"]:
         out.append(f"\n<b>ICT 4h→1h→15m</b>: con volumen {st['ICT: con volumen']} → sesgo 4h {st['ICT: sesgo 4h']} → "

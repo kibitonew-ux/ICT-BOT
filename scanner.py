@@ -23,7 +23,7 @@ log = logging.getLogger("scanner")
 
 # Claves del embudo (el resto de claves del Counter son motivos de descarte)
 FUNNEL_KEYS = ("analizados", "filtro diario ok", "con volumen ahora", "cajas de consolidación válidas",
-               "errores de datos", "peticiones reintentadas por límite de BingX",
+               "errores de datos", "peticiones reintentadas por límite de BingX", "RVOL ignorado por dato dudoso",
                "ICT: con volumen", "ICT: sesgo 4h", "ICT: POI", "ICT: barrido en POI", "ICT: CISD 15m",
                "ICT: señales", "ICT: errores de datos")
 
@@ -37,7 +37,8 @@ def _transient(e: Exception) -> bool:
 def rvol_checked(df, qv: float, cfg):
     """
     (rvol, diagnóstico). Si el RVOL supera `rvol_cap` se comprueba: con >=3 de las 20 velas previas a cero, o si esa
-    sola vela mueve más de `rvol_day_frac` del volumen de 24h, se considera dato erróneo y devuelve (0.0, texto).
+    sola vela supera `rvol_day_frac` x el volumen de 24h (el 24h ya INCLUYE la vela: un pico real puede ser el 60 %
+    del día, pero nunca más del 100 %), se considera dato erróneo y devuelve (0.0, texto).
     """
     rv = rvol(df, 20)
     if rv <= cfg.rvol_cap:

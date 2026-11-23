@@ -80,7 +80,7 @@ class Config:
     consol_range_adr: float = 0.8   # rango de consolidación <= 0.8 * ADR
     consol_contract: float = 1.0    # contracción: rango medio 2.ª mitad < 1.ª mitad * X (sube a 1.1-1.2 para relajar)
     rvol_cap: float = 40.0          # RVOL por encima de esto se comprueba (suele ser un dato raro de BingX)
-    rvol_day_frac: float = 0.2      # ...y se descarta si esa vela supera X del volumen 24h o hay >=3 velas a cero
+    rvol_day_frac: float = 1.0      # ...y se descarta si esa vela supera X*volumen 24h (1.0 = imposible) o hay >=3 velas a cero
     rvol_min: float = 2.0           # volumen relativo mínimo en vela de ruptura (15m)
     max_chase_pct: float = 1.5      # no perseguir: máx % por encima del nivel roto
     ep_move_15m: float = 3.0        # Episodic Pivot: movimiento mínimo en 15m (%)
@@ -102,6 +102,7 @@ class Config:
     ict_liq_bars: int = 12          # liquidez = mín/máx de las últimas N velas 1h
     ict_sweep_bars: int = 8         # el barrido debe ser de las últimas N velas 1h
     ict_cisd_bars: int = 24         # el CISD debe llegar <= N velas 15m tras el barrido
+    ict_cisd_min_run: int = 2       # velas en contra mínimas del tramo cuya apertura hay que superar
     ict_rvol: float = 1.5           # VOLUMEN: RVOL mínimo de la vela CISD (15m)
     ict_vol_vs_run: float = 1.0     # VOLUMEN: vela CISD >= X * volumen medio del tramo en contra
     ict_close_pos: float = 0.6      # cierre de la vela CISD en el 60% favorable de su rango
@@ -193,6 +194,7 @@ def load_config() -> Config:
         ict_liq_bars=_i("ICT_LIQ_BARS", d.ict_liq_bars),
         ict_sweep_bars=_i("ICT_SWEEP_BARS", d.ict_sweep_bars),
         ict_cisd_bars=_i("ICT_CISD_BARS", d.ict_cisd_bars),
+        ict_cisd_min_run=_i("ICT_CISD_MIN_RUN", d.ict_cisd_min_run),
         ict_rvol=_f("ICT_RVOL", d.ict_rvol),
         ict_vol_vs_run=_f("ICT_VOL_VS_RUN", d.ict_vol_vs_run),
         ict_close_pos=_f("ICT_CLOSE_POS", d.ict_close_pos),

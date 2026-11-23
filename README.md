@@ -133,7 +133,8 @@ pytest                 # tests de estrategia y gestión
 | `ICT_MIN_RR` | 2.0 | Objetivo (liquidez 4h) mínimo en R |
 | `ICT_DISCOUNT` | true | Largos solo en descuento, cortos solo en premium |
 | `ICT_SWING_N`, `ICT_DISP_ATR`, `ICT_POI_BARS`, `ICT_LIQ_BARS`, `ICT_SWEEP_BARS`, `ICT_CISD_BARS` | 2, 1.2, 72, 12, 8, 24 | Geometría de pivotes, POI, liquidez y ventanas |
-| `RVOL_CAP` / `RVOL_DAY_FRAC` | 40 / 0.2 | RVOL > 40x se comprueba: se ignora si hay ≥3 velas previas a cero o esa vela supera el 20 % del volumen 24h (dato erróneo de BingX; el resumen muestra el diagnóstico) |
+| `RVOL_CAP` / `RVOL_DAY_FRAC` | 40 / 1.0 | RVOL > 40x se comprueba: se ignora solo si hay ≥3 velas previas a cero o si esa vela vale MÁS que todo el volumen 24h (imposible; el 24h ya incluye la vela, por eso un pico real puede ser el 60 % del día). El resumen muestra el diagnóstico |
+| `ICT_CISD_MIN_RUN` | 2 | Velas en contra mínimas del tramo cuya apertura hay que superar para el CISD (y para vigilarlo) |
 | `CONSOL_CONTRACT` | 1.0 | Contracción exigida a la caja 1h (rango 2.ª mitad < 1.ª × X). Súbela a 1.1–1.2 si no aparecen candidatas durante días |
 | `HEDGE_MODE` | true | Pon `false` si tu cuenta BingX es One-Way |
 

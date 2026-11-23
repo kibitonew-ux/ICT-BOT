@@ -148,7 +148,7 @@ def find_cisd(m, side: str, ts_sweep: int, cfg):
         while j >= max(0, ik - 4) and ((c[j] < o[j]) if long else (c[j] > o[j])):
             j -= 1
         rs = j + 1
-        if cidx - rs < 2:
+        if cidx - rs < max(1, cfg.ict_cisd_min_run):
             continue
         level = o[rs]                                                    # apertura de la 1.ª vela del tramo
         if not ((c[cidx] > level) if long else (c[cidx] < level)):
@@ -172,7 +172,7 @@ def find_cisd(m, side: str, ts_sweep: int, cfg):
     return None
 
 
-def pending_cisd(m, side: str, ts_sweep: int):
+def pending_cisd(m, side: str, ts_sweep: int, min_run: int = 2):
     """Nivel que debe CERRAR la 15m para que haya CISD (tramo en contra más reciente desde el barrido)."""
     long = side == "long"
     mm = m.reset_index(drop=True)
@@ -192,6 +192,8 @@ def pending_cisd(m, side: str, ts_sweep: int):
         rs -= 1
     level = float(o[rs])
     if (c[-1] >= level) if long else (c[-1] <= level):                   # ya superado: no está "pendiente"
+        return None
+    if p - rs + 1 < min_run:                                             # aún no es un tramo válido: no se promete entrada
         return None
     return {"level": level, "n_run": p - rs + 1}
 
@@ -236,7 +238,7 @@ def ict_signals(sym, h4, h1, m, cfg, stats=None, watch=None) -> list:
     _bump(stats, "ICT: barrido en POI")
     cs = find_cisd(m, side, sw["ts"], cfg)
     if cs is None:
-        pend = pending_cisd(m, side, sw["ts"])
+        pend = pending_cisd(m, side, sw["ts"], cfg.ict_cisd_min_run)
         if watch is not None and pend:
             watch.append(_watch_item(sym, side, sw, pend, m, cfg, "falta el CISD 15m"))
         return []
