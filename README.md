@@ -42,6 +42,8 @@ Setup `ICT Sweep+CISD`, long y short, entrada en 15m. Reglas fijadas en código 
 4. **Volumen (puerta dura):** RVOL de la vela CISD ≥ `ICT_RVOL` (1.5), volumen ≥ `ICT_VOL_VS_RUN`× el del tramo en contra y cierre en el `ICT_CLOSE_POS` (60%) favorable de la vela. Solo se piden las velas 4h/1h si la 15m trae volumen (ahorra peticiones). Con solo OHLCV no hay delta real: el volumen es un indicador, no una prueba.
 5. **Plan:** entrada = cierre de la vela CISD; SL tras la mecha del barrido (acotado por ATR); objetivo = liquidez 4h más cercana, mínimo `ICT_MIN_RR` R. Después rige la gestión habitual (TP1, break-even, trailing).
 
+**🧠 ICT en vigilancia:** cuando hay barrido en POI pero aún no CISD (o el CISD no trae volumen), el bot avisa con el nivel exacto que debe cerrar la 15m y el nivel de anulación. `/ict` lo muestra cuando quieras. Es solo vigilancia: la entrada es el aviso 🟢/🔴 `ICT Sweep+CISD`.
+
 `python ict_scan.py [--top N] [BTC ETH…] [--no-volume]` lo ejecuta suelto contra BingX; con `--no-volume` ves qué patrones existen y cuáles descarta solo el volumen. `/scan` muestra el embudo ICT.
 
 > Las definiciones de OB, FVG, barrido y CISD tienen mucha interpretación: esta es *una* versión objetiva, **sin backtest**. Calibra con `ict_scan.py` y en modo `signals` antes de arriesgar dinero.
@@ -100,7 +102,7 @@ pytest                 # tests de estrategia y gestión
 ```
 
 ## Comandos de Telegram
-`/guia` (cómo usar los avisos) · `/watchlist` (candidatas ahora) · `/debug TRX` (qué volumen lee el bot de BingX) · `/scan` (resumen y motivos de descarte) · `/status` · `/positions` · `/pause` (no abre nuevas) · `/resume` · `/closeall` (cierra todo)
+`/guia` (cómo usar los avisos) · `/ict` (barridos esperando CISD) · `/watchlist` (candidatas ahora) · `/debug TRX` (qué volumen lee el bot de BingX) · `/scan` (resumen y motivos de descarte) · `/status` · `/positions` · `/pause` (no abre nuevas) · `/resume` · `/closeall` (cierra todo)
 
 ## Variables principales
 | Variable | Defecto | Descripción |

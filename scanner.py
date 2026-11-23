@@ -39,6 +39,7 @@ class ScanResult:
     signals: list = field(default_factory=list)
     candidates: list = field(default_factory=list)
     movers: list = field(default_factory=list)       # (símbolo, rvol15m, %24h, motivo/estado)
+    ict_watch: list = field(default_factory=list)   # barridos ICT hechos que esperan el CISD
     far: list = field(default_factory=list)         # cajas válidas aún lejos: (símbolo, lado, dist%, gatillo)
     regime: str = "neutral"
     stats: Counter = field(default_factory=Counter)
@@ -162,7 +163,7 @@ class Scanner:
                     try:
                         h4 = self._get(sym, "4h", 120, H4_TTL, drop_last=True)
                         h1i = self._get(sym, "1h", 120, HOURLY_TTL, fresh=True, drop_last=True)
-                        for s in ict_signals(sym, h4, h1i, m, cfg, st):
+                        for s in ict_signals(sym, h4, h1i, m, cfg, st, res.ict_watch):
                             adjust_score(s, res.regime, self.funding(sym))
                             res.signals.append(s)
                     except Exception as e:

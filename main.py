@@ -87,9 +87,24 @@ def fmt_cand(c, cfg, equity=None) -> str:
     )
 
 
+def fmt_ict_watch(items, cfg) -> str:
+    out = ["🧠 <b>ICT en vigilancia</b> (barrido hecho, aún SIN entrada)"]
+    for w in items:
+        long = w["side"] == "long"
+        out.append(
+            f"\n{'🟢' if long else '🔴'} <b>{w['symbol']}</b> {w['side'].upper()} · barrido en {w['kind']} "
+            f"{px(w['zlo'])}–{px(w['zhi'])} (mecha a {px(w['ext'])})\n"
+            f"   {w['why'].capitalize()}. ENTRAR solo si una vela 15m CIERRA {'&gt;' if long else '&lt;'} {px(w['level'])} "
+            f"(tramo de {w['n_run']} velas) con RVOL ≥ {cfg.ict_rvol:g}x (ahora {w['rv']:.1f}x) y cierre fuerte\n"
+            f"   Se anula si una vela 15m cierra {'bajo' if long else 'sobre'} {px(w['ext'])}")
+    return "\n".join(out)
+
+
 def fmt_watch(cands, cfg, title="👀 <b>Candidatas a explotar</b> (aún sin ruptura)", equity=None) -> str:
     return title + "\n\n" + "\n\n".join(fmt_cand(c, cfg, equity) for c in cands)
 
+
+RVOL_SUSPECT = 40.0      # un RVOL 15m por encima de esto casi siempre es un dato raro de BingX, no mercado
 
 NEAR_TITLE = "🔔 <b>Casi en el gatillo</b> (abre el gráfico 15m y espera el cierre de vela)"
 
@@ -101,6 +116,7 @@ GUIDE = (
     "Entra con la mitad del tamaño. Si luego llega ✅ CONFIRMA, añade la otra mitad; si no, el stop te protege.\n"
     "🟢/🔴 <b>Señal</b>: la vela 15m YA cerró rompiendo con volumen. Es el momento de entrar (mercado o límite) "
     "si el precio no pasó de «válida mientras no pase de».\n"
+    "🧠 <b>ICT en vigilancia</b>: barrido hecho, falta el CISD: solo vigilar, con el nivel que debe cerrar la 15m.\n"
     "🧠 <b>ICT Sweep+CISD</b>: estructura 4h a favor, barrido de liquidez en 1h dentro de un POI y CISD en 15m "
     "con volumen. Entrada = cierre de la vela CISD; SL tras la mecha del barrido; objetivo = liquidez 4h.\n"
     "A +1R el stop pasa a break-even: desde ahí la operación ya no pierde capital (salvo comisiones/slippage).\n"
@@ -136,6 +152,11 @@ def pick_early(sigs, st, cfg) -> list:
     return out[: cfg.max_signals_per_scan]
 
 
+def pick_ict_watch(res, st, cfg) -> list:
+    """Barridos ICT a avisar (una vez por ventana de re-aviso)."""
+    return [w for w in res.ict_watch[: cfg.watch_max] if st.watch_due(w["key"], cfg.watch_realert_min)]
+
+
 def pick_watch(res, st, cfg):
     """(casi_en_gatillo, nuevas). Una candidata casi lista avisa aunque ya se hubiera avisado más lejos."""
     cands = res.candidates[: cfg.watch_max]
@@ -167,11 +188,17 @@ def fmt_digest(res, cfg) -> str:
         out += [f"• {s} {side.upper()} gatillo {px(t)} (a {d:.2f}%){_ctr(side)}" for s, side, d, t in res.far[:3]]
     if res.movers:
         out.append("\n<b>Con volumen ahora</b> (RVOL 15m · %24h → por qué no es señal):")
-        out += [f"• {s} {rv:.1f}x · {p:+.1f}% → {why}" for s, rv, p, why in res.movers[:5]]
+        out += [f"• {s} {rv:.1f}x · {p:+.1f}% → {why}"
+                + (f" ⚠️ RVOL absurdo: verifica con /debug {s.split('/')[0]}" if rv > RVOL_SUSPECT else "")
+                for s, rv, p, why in res.movers[:5]]
     if st["ICT: con volumen"]:
         out.append(f"\n<b>ICT 4h→1h→15m</b>: con volumen {st['ICT: con volumen']} → sesgo 4h {st['ICT: sesgo 4h']} → "
                    f"POI {st['ICT: POI']} → barrido {st['ICT: barrido en POI']} → CISD {st['ICT: CISD 15m']} → "
                    f"señales {st['ICT: señales']}")
+    if res.ict_watch:
+        out.append("\n<b>🧠 ICT esperando CISD</b> (/ict para el detalle):")
+        out += [f"• {w['symbol']} {w['side'].upper()} cerrar 15m {'>' if w['side'] == 'long' else '<'} {px(w['level'])} "
+                f"(RVOL ahora {w['rv']:.1f}x)" for w in res.ict_watch[:4]]
     rs = res.reasons(5)
     if rs:
         out.append("\n<b>Por qué se descartan las demás:</b>")
@@ -260,6 +287,10 @@ def main():
                             tg.send(f"⏭ {s.symbol} no ejecutada: {why}")
 
                 # 2) Candidatas: consolidando cerca del gatillo (solo las nuevas)
+                iw = pick_ict_watch(res, st, cfg)
+                if iw:
+                    tg.send(fmt_ict_watch(iw, cfg))
+                    st.watch_mark([w["key"] for w in iw])
                 near, new = pick_watch(res, st, cfg)
                 if near:
                     tg.send(fmt_watch(near, cfg, NEAR_TITLE, ref_equity()))
@@ -325,6 +356,14 @@ def main():
     def cmd_closeall():
         return f"🧹 Posiciones cerradas: {trader.close_all()}"
 
+    def cmd_ict():
+        res = last["res"]
+        if res is None:
+            return "Aún no hay ningún escaneo completado."
+        if not res.ict_watch:
+            return "ICT: ningún barrido pendiente de CISD ahora mismo. /scan muestra el embudo."
+        return fmt_ict_watch(res.ict_watch[: cfg.watch_max], cfg)
+
     def cmd_watchlist():
         res = last["res"]
         if res is None:
@@ -342,8 +381,9 @@ def main():
         "/pause": cmd_pause,
         "/resume": cmd_resume,
         "/closeall": cmd_closeall,
+        "/ict": cmd_ict,
         "/guia": lambda: GUIDE,
-        "/help": lambda: "/guia /watchlist /scan /debug SIMBOLO /status /positions /pause /resume /closeall",
+        "/help": lambda: "/guia /ict /watchlist /scan /debug SIMBOLO /status /positions /pause /resume /closeall",
     }
 
     prev = st.ensure_day(trader.equity)

@@ -758,3 +758,58 @@ def test_ict_failure_does_not_hide_breakout_detection():
     res = Scanner(No4h({"GO/USDT:USDT": (d, h, m)}), CFG).scan()
     assert res.stats["ICT: errores de datos"] == 1 and res.stats["errores de datos"] == 0
     assert [s for s in res.signals if s.setup == "Breakout"]                      # la ruptura normal sigue funcionando
+
+
+# ───────────── ICT en vigilancia (barrido hecho, falta CISD) ─────────────
+from ict import pending_cisd
+
+
+def _m_sweep_without_cisd():
+    m = ict_m15()
+    m.loc[m.index[-1], ["open", "high", "low", "close"]] = [109.85, 110.08, 109.84, 110.06]   # alcista pero NO supera 110.1
+    return m
+
+
+def test_ict_watch_lists_sweeps_waiting_for_cisd():
+    watch, stats = [], Counter()
+    assert ict_signals("T/USDT:USDT", ict_h4_bull(), ict_h1(), _m_sweep_without_cisd(), CFG, stats, watch) == []
+    assert stats["ICT: barrido en POI"] == 1 and stats["ICT: CISD 15m"] == 0
+    assert len(watch) == 1
+    w = watch[0]
+    assert w["side"] == "long" and w["level"] == pytest.approx(110.1) and w["n_run"] == 2
+    assert w["ext"] == pytest.approx(109.8) and w["why"] == "falta el CISD 15m" and w["kind"] == "OB"
+    assert pending_cisd(_m_sweep_without_cisd(), "long", T0 + 88 * H)["level"] == pytest.approx(110.1)
+    assert pending_cisd(ict_m15(), "long", T0 + 88 * H) is None            # ya hubo CISD: nada pendiente
+
+
+def test_ict_watch_when_cisd_lacks_volume_and_not_when_signal():
+    watch = []
+    assert ict_signals("T", ict_h4_bull(), ict_h1(), ict_m15(cisd_vol=110), CFG, None, watch) == []
+    assert watch and watch[0]["why"] == "CISD sin volumen suficiente"
+    watch = []
+    assert ict_signals("T", ict_h4_bull(), ict_h1(), ict_m15(), CFG, None, watch)        # señal real: no se vigila
+    assert watch == []
+
+
+def test_ict_watch_message_dedupe_and_short_mirror(tmp_path):
+    watch = []
+    ict_signals("T/USDT:USDT", ict_h4_bull(), ict_h1(), _m_sweep_without_cisd(), CFG, None, watch)
+    txt = botmain.fmt_ict_watch(watch, CFG)
+    assert "ICT en vigilancia" in txt and "SIN entrada" in txt and "CIERRA &gt; 110.1" in txt and "Se anula" in txt
+    st = State(str(tmp_path), 1000.0)
+    res = type("R", (), {"ict_watch": watch})()
+    assert botmain.pick_ict_watch(res, st, CFG) == watch
+    st.watch_mark([watch[0]["key"]])
+    assert botmain.pick_ict_watch(res, st, CFG) == []                           # no se repite en la ventana
+    wm = []
+    ict_signals("T", mirror(ict_h4_bull()), mirror(ict_h1()), mirror(_m_sweep_without_cisd()), CFG, None, wm)
+    assert wm and wm[0]["side"] == "short" and "CIERRA &lt;" in botmain.fmt_ict_watch(wm, CFG)
+
+
+def test_digest_flags_absurd_rvol_and_lists_ict_watch():
+    d, h = daily_trend(), _with_open_hour(hourly())
+    m = _with_open_candle(m15(last_open=1.6, last_close=1.6, last_vol=100 * 150))     # RVOL 150x
+    res = Scanner(FakeScanEx({"ATOM/USDT:USDT": (d, h, m)}), CFG).scan()
+    res.ict_watch = [{"symbol": "X/USDT:USDT", "side": "long", "level": 1.5, "rv": 0.7}]
+    t = botmain.fmt_digest(res, CFG)
+    assert "RVOL absurdo: verifica con /debug ATOM" in t and "ICT esperando CISD" in t

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from indicators import atr
+from indicators import atr, rvol
 from strategies import Signal, _bump, _stop
 
 H1 = 3_600_000
@@ -172,9 +172,43 @@ def find_cisd(m, side: str, ts_sweep: int, cfg):
     return None
 
 
+def pending_cisd(m, side: str, ts_sweep: int):
+    """Nivel que debe CERRAR la 15m para que haya CISD (tramo en contra más reciente desde el barrido)."""
+    long = side == "long"
+    mm = m.reset_index(drop=True)
+    after = mm.index[mm["ts"] >= ts_sweep]
+    if len(after) == 0:
+        return None
+    ik = int(after[0])
+    o, c = mm["open"].to_numpy(float), mm["close"].to_numpy(float)
+    against = (lambda i: c[i] < o[i]) if long else (lambda i: c[i] > o[i])
+    p = len(mm) - 1
+    while p >= ik and not against(p):                                    # última vela en contra
+        p -= 1
+    if p < ik:
+        return None
+    rs = p
+    while rs - 1 >= max(0, ik - 4) and against(rs - 1):
+        rs -= 1
+    level = float(o[rs])
+    if (c[-1] >= level) if long else (c[-1] <= level):                   # ya superado: no está "pendiente"
+        return None
+    return {"level": level, "n_run": p - rs + 1}
+
+
+def _watch_item(sym, side, sw, pend, m, cfg, why):
+    z = sw["poi"]
+    since = m[m["ts"] >= sw["ts"]]
+    ext = float(since["low"].min()) if side == "long" else float(since["high"].max())
+    return {"symbol": sym, "side": side, "kind": z["kind"], "zlo": z["lo"], "zhi": z["hi"], "ext": ext,
+            "level": pend["level"], "n_run": pend["n_run"], "rv": rvol(m, 20), "why": why,
+            "key": f"ICT|{sym}|{side}"}
+
+
 # ───────────── orquestación ─────────────
-def ict_signals(sym, h4, h1, m, cfg, stats=None) -> list:
-    """h4/h1/m = velas CERRADAS. Devuelve [] o [Signal] (setup 'ICT Sweep+CISD')."""
+def ict_signals(sym, h4, h1, m, cfg, stats=None, watch=None) -> list:
+    """h4/h1/m = velas CERRADAS. Devuelve [] o [Signal] (setup 'ICT Sweep+CISD').
+    `watch` (lista opcional) recoge los barridos ya hechos que aún esperan el CISD / su volumen."""
     if len(h4) < 30 or len(h1) < 60 or len(m) < 60:
         return []
     st = structure_bias(h4, cfg.ict_swing_n)
@@ -202,12 +236,18 @@ def ict_signals(sym, h4, h1, m, cfg, stats=None) -> list:
     _bump(stats, "ICT: barrido en POI")
     cs = find_cisd(m, side, sw["ts"], cfg)
     if cs is None:
+        pend = pending_cisd(m, side, sw["ts"])
+        if watch is not None and pend:
+            watch.append(_watch_item(sym, side, sw, pend, m, cfg, "falta el CISD 15m"))
         return []
     _bump(stats, "ICT: CISD 15m")
 
     # ── el VOLUMEN decide ──
     if cs["rv"] < cfg.ict_rvol or cs["vs_run"] < cfg.ict_vol_vs_run or cs["strength"] < cfg.ict_close_pos:
         _bump(stats, "ICT: CISD sin confirmación de volumen/cierre")
+        if watch is not None:
+            watch.append(_watch_item(sym, side, sw, {"level": cs["level"], "n_run": cs["n_run"]}, m, cfg,
+                                     "CISD sin volumen suficiente"))
         return []
     if cs["chase"] > cfg.max_chase_pct:
         _bump(stats, "ICT: CISD ya extendido")
